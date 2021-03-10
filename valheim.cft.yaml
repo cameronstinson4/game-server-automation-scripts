@@ -1,0 +1,156 @@
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+    Default: valheim-ssh
+
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+    - t3.medium
+
+  ServerPassword:
+    Description: Valheim server password. Minimum password length is 5.
+    Type: String
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+Resources:
+
+  # S3 Buckets (where backups are saved)
+  ValheimS3Bucket:
+    Type: AWS::S3::Bucket
+
+  # Role for Valheim Services
+  ValheimIAMRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Policies: 
+        - 
+          PolicyName: "root"
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: s3:*
+              Resource:
+              - !Join [ '', [ 'arn:aws:s3:::', !Ref ValheimS3Bucket ] ] 
+              - !Join [ '', [ 'arn:aws:s3:::', !Ref ValheimS3Bucket, '/*' ] ] 
+
+  # Why is this necessary
+  ValheimInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Roles:
+        - Ref: ValheimIAMRole
+
+  # EC2 Security group
+  ValheimEC2SecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: SSH, and Valheim access
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: '22'
+            ToPort: '22'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: tcp
+            FromPort: '2456'
+            ToPort: '2458'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: udp
+            FromPort: '2456'
+            ToPort: '2458'
+            CidrIp: '0.0.0.0/0'
+            
+  # Server instance 
+  ValheimEC2:
+      Type: AWS::EC2::Instance
+      Properties:
+        InstanceType:
+          Ref: InstanceType
+        SecurityGroups:
+          - Ref: ValheimEC2SecurityGroup
+        KeyName:
+          Ref: KeyName
+        ImageId: 
+          Ref: LatestAmiId
+        IamInstanceProfile:
+          Ref: ValheimInstanceProfile
+        UserData:
+          Fn::Base64:
+            Fn::Sub:
+              - |  
+                #!/bin/bash
+                # environment variables
+                echo "S3_BUCKET_NAME=${ValheimS3Bucket}" >> /etc/environment
+
+                # yum updates and installs
+                yum update -y
+                yum install git epel-release curl wget tar bzip2 gzip unzip python3 binutils bc jq tmux glibc.i686 libstdc++ libstdc++.i686 -y
+
+                # install lgsm
+                adduser vhserver
+                su - vhserver -c 'wget -O linuxgsm.sh https://linuxgsm.sh && chmod +x linuxgsm.sh && bash linuxgsm.sh vhserver && ./vhserver auto-install'
+
+                # Config
+                echo '
+                  ################################## 
+                  ######## Common Settings ######### 
+                  ##################################
+                  # PLACE GLOBAL SETTINGS HERE
+                  ## These settings will apply to all instances.
+                  stats="on"
+
+                  #### Game Server Settings ####
+
+                  ## Predefined Parameters | https://docs.linuxgsm.com/configuration/start-parameters
+                  servername="Valheim Server"
+                  # Minimum password length is 5.
+                  serverpassword="${ServerPassword}"
+                  port="2456"
+                  gameworld="${!selfname}"
+                  public="1"
+                '  >> /home/vhserver/lgsm/config-lgsm/vhserver/common.cfg
+
+                # Backup Script
+                echo '
+                  #!/bin/bash
+                  set -xeuo pipefail
+                  data_dir="/home/vhserver/.config/unity3d/IronGate/Valheim/"
+                  aws s3 cp --recursive "$data_dir" "s3://${ValheimS3Bucket}"
+                ' >> /home/vhserver/valheim-backup.sh 
+                
+                chmod +x /home/vhserver/valheim-backup.sh
+                chown -R vhserver:vhserver /home/vhserver/
+
+                su - vhserver -c '/home/vhserver/vhserver start'
+
+                # setup cron jobs
+                (crontab -l 2>/dev/null; echo "*/20 * * * * su - vhserver -c '/home/vhserver/valheim-backup.sh '") | crontab -
+                (crontab -l 2>/dev/null; echo "@reboot su - vhserver -c '/home/vhserver/vhserver update '") | crontab -
+                (crontab -l 2>/dev/null; echo "@reboot su - vhserver -c '/home/vhserver/vhserver start '") | crontab -
+                (crontab -l 2>/dev/null; echo "@reboot sudo service crond start '") | crontab -
+
+                service crond start
+
+              - {
+                ValheimS3Bucket: !Ref ValheimS3Bucket,
+                ServerPassword: !Ref ServerPassword
+                }
