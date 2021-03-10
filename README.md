@@ -93,3 +93,7 @@ systemctl restart factorio.service
 ### What size server should I use?
 
 A t3.medium runs both servers pretty well. You can always upgrade later without recreating everything.
+
+### What's in the 'python' folder?
+
+This folder contains python snippets that can query and alter the state of the EC2 instances in your account. I have these in lambda fuctions that are triggers via api gateway, allowing me programatic access to change instance state of my EC2 instances.
