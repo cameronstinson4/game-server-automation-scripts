@@ -14,11 +14,18 @@ def lambda_handler(event, context):
     result = {}
 
     for instance in instances:
-        print(instance)
+        # Uses the iam role name to get an estimated name for the ec2 instance
+        name = 'n/a'
+        try: 
+            name = instance.iam_instance_profile['Arn'].split("InstanceProfile")[0].split("instance-profile/")[1]
+        except:
+            pass
+
         result[instance.instance_id] = {
             "status": instance.state['Name'],
             "public_ip_address": instance.public_ip_address,
-            "instance_type": instance.instance_type
+            "instance_type": instance.instance_type,
+            "name": name
         }
 
     return create_response(None, result)
