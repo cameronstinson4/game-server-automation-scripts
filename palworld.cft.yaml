@@ -1,0 +1,181 @@
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+    Default: Palworld-ssh
+
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+    - t3.medium
+
+  ServerPassword:
+    Description: Palworld server password. Minimum password length is 5.
+    Type: String
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+Resources:
+
+  # S3 Buckets (where backups are saved)
+  PalworldS3Bucket:
+    Type: AWS::S3::Bucket
+
+  # Role for Palworld Services
+  PalworldIAMRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Policies: 
+        - 
+          PolicyName: "root"
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action: s3:*
+              Resource:
+              - !Join [ '', [ 'arn:aws:s3:::', !Ref PalworldS3Bucket ] ] 
+              - !Join [ '', [ 'arn:aws:s3:::', !Ref PalworldS3Bucket, '/*' ] ] 
+
+  # Why is this necessary
+  PalworldInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Roles:
+        - Ref: PalworldIAMRole
+
+  # EC2 Security group
+  PalworldEC2SecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: SSH, and Palworld server on 8211, Steam is 27015, Rcon 25575
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: '22'
+            ToPort: '22'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: tcp
+            FromPort: '8211'
+            ToPort: '8211'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: udp
+            FromPort: '8211'
+            ToPort: '8211'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: tcp
+            FromPort: '27015'
+            ToPort: '27015'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: udp
+            FromPort: '27015'
+            ToPort: '27015'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: tcp
+            FromPort: '25575'
+            ToPort: '25575'
+            CidrIp: '0.0.0.0/0'
+          - IpProtocol: udp
+            FromPort: '25575'
+            ToPort: '25575'
+            CidrIp: '0.0.0.0/0'
+            
+  # Server instance 
+  PalworldEC2:
+      Type: AWS::EC2::Instance
+      Properties:
+        InstanceType:
+          Ref: InstanceType
+        SecurityGroups:
+          - Ref: PalworldEC2SecurityGroup
+        KeyName:
+          Ref: KeyName
+        ImageId: 
+          Ref: LatestAmiId
+        IamInstanceProfile:
+          Ref: PalworldInstanceProfile
+        UserData:
+          Fn::Base64:
+            Fn::Sub:
+              - |  
+                #!/bin/bash
+                # environment variables
+                echo "S3_BUCKET_NAME=${PalworldS3Bucket}" >> /etc/environment
+
+                # yum updates and installs
+                yum update -y
+                yum install git epel-release curl wget tar bzip2 gzip unzip python3 binutils bc jq tmux glibc.i686 libstdc++ libstdc++.i686 -y
+
+                # install lgsm
+                adduser pwserver
+                su - pwserver -c 'curl -Lo linuxgsm.sh https://linuxgsm.sh && chmod +x linuxgsm.sh && bash linuxgsm.sh pwserver && ./pwserver auto-install'
+
+                # Config
+                echo '
+                  ################################## 
+                  ######## Common Settings ######### 
+                  ##################################
+                  # PLACE GLOBAL SETTINGS HERE
+                  ## These settings will apply to all instances.
+                  stats="on"
+
+                  #### Game Server Settings ####
+
+                  ## Predefined Parameters | https://docs.linuxgsm.com/configuration/start-parameters
+                  servername="Palworld Server"
+                  # Minimum password length is 5.
+                  serverpassword="${ServerPassword}"
+                  port="8211"
+                  gameworld="Palworld EC2"
+                  public="1"
+                '  >> /home/pwserver/lgsm/config-lgsm/pwserver/pwserver.cfg
+
+                # Palword settings
+                # Delete default settings file
+                rm -rf /home/pwserver/serverfiles/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini
+                echo '[/Script/Pal.PalGameWorldSettings]
+                OptionSettings=(Difficulty=None,DayTimeSpeedRate=1.000000,NightTimeSpeedRate=1.000000,ExpRate=1.000000,PalCaptureRate=1.000000,PalSpawnNumRate=1.000000,PalDamageRateAttack=1.000000,PalDamageRateDefense=1.000000,PlayerDamageRateAttack=1.000000,PlayerDamageRateDefense=1.000000,PlayerStomachDecreaceRate=1.000000,PlayerStaminaDecreaceRate=1.000000,PlayerAutoHPRegeneRate=1.000000,PlayerAutoHpRegeneRateInSleep=1.000000,PalStomachDecreaceRate=1.000000,PalStaminaDecreaceRate=1.000000,PalAutoHPRegeneRate=1.000000,PalAutoHpRegeneRateInSleep=1.000000,BuildObjectDamageRate=1.000000,BuildObjectDeteriorationDamageRate=1.000000,CollectionDropRate=1.000000,CollectionObjectHpRate=1.000000,CollectionObjectRespawnSpeedRate=1.000000,EnemyDropItemRate=1.000000,DeathPenalty=All,bEnablePlayerToPlayerDamage=False,bEnableFriendlyFire=False,bEnableInvaderEnemy=True,bActiveUNKO=False,bEnableAimAssistPad=True,bEnableAimAssistKeyboard=False,DropItemMaxNum=3000,DropItemMaxNum_UNKO=100,BaseCampMaxNum=128,BaseCampWorkerMaxNum=15,DropItemAliveMaxHours=1.000000,bAutoResetGuildNoOnlinePlayers=False,AutoResetGuildTimeNoOnlinePlayers=72.000000,GuildPlayerMaxNum=20,PalEggDefaultHatchingTime=72.000000,WorkSpeedRate=1.000000,bIsMultiplay=False,bIsPvP=False,bCanPickupOtherGuildDeathPenaltyDrop=False,bEnableNonLoginPenalty=True,bEnableFastTravel=True,bIsStartLocationSelectByMap=True,bExistPlayerAfterLogout=False,bEnableDefenseOtherGuildPlayer=False,CoopPlayerMaxNum=4,ServerPlayerMaxNum=32,ServerName="Palworld EC2",ServerDescription="",AdminPassword="${ServerPassword}",ServerPassword="${ServerPassword}",PublicPort=8211,PublicIP="",RCONEnabled=False,RCONPort=25575,Region="",bUseAuth=True,BanListURL="https://api.palworldgame.com/api/banlist.txt")
+
+                ' >> /home/pwserver/serverfiles/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini
+
+                # Backup Script
+                echo '
+                  #!/bin/bash
+                  set -xeuo pipefail
+                  data_dir="/home/pwserver/serverfiles/Pal/Saved/SaveGames/"
+                  aws s3 cp --recursive "$data_dir" "s3://${PalworldS3Bucket}"
+                ' >> /home/pwserver/Palworld-backup.sh 
+                
+                chmod +x /home/pwserver/Palworld-backup.sh
+                chown -R pwserver:pwserver /home/pwserver/
+                chown -R ec2-user:ec2-user /home/pwserver/
+
+                su - pwserver -c '/home/pwserver/pwserver start'
+
+                # setup cron jobs
+                (crontab -l 2>/dev/null; echo "*/20 * * * * su - pwserver -c '/home/pwserver/Palworld-backup.sh '") | crontab -
+                (crontab -l 2>/dev/null; echo "@reboot su - pwserver -c '/home/pwserver/pwserver update '") | crontab -
+                (crontab -l 2>/dev/null; echo "@reboot su - pwserver -c '/home/pwserver/pwserver start '") | crontab -
+                (crontab -l 2>/dev/null; echo "@reboot sudo service crond start '") | crontab -
+
+                service crond start
+
+              - {
+                PalworldS3Bucket: !Ref PalworldS3Bucket,
+                ServerPassword: !Ref ServerPassword
+                }

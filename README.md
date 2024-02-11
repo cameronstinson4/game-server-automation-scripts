@@ -68,11 +68,11 @@ To get the server's IP address
 
 [Guide to log into your EC2 instance](https://docs.aws.amazon.com/quickstarts/latest/vmlaunch/step-2-connect-to-instance.html)
 
-The Valheim CFT uses LGSM to manage the server. [Documentation here](https://linuxgsm.com/lgsm/vhserver/)
+The Valheim and Palworld CFT uses LGSM to manage the server. [Documentation here](https://linuxgsm.com/lgsm/vhserver/)
 ``` sh
 # You can log in as the Valheim server user via:
 sudo su
-su - vhserver
+su - vhserver # replace vhserver with pwserver for palworld
 # Example command
 ./vhserver monitor
 # config is stored here: /home/vhserver/lgsm/config-lgsm/vhserver/common.cfg
