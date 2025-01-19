@@ -143,6 +143,8 @@ Resources:
                   port="8211"
                   gameworld="Palworld EC2"
                   public="1"
+
+                  executable="./PalServer-Linux-Shipping"
                 '  >> /home/pwserver/lgsm/config-lgsm/pwserver/pwserver.cfg
 
                 # Palword settings
