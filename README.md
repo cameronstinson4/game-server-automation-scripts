@@ -4,7 +4,8 @@ Scripts for game server automation
 Supported games:
 
 * Factorio 
-* Valheim 
+* Valheim
+* Palworld
 
 ## Game Server
 So you want a quick and simple way to create your own game server?
@@ -92,7 +93,9 @@ systemctl restart factorio.service
 
 ### What size server should I use?
 
-A t3.medium runs both servers pretty well. You can always upgrade later without recreating everything.
+A t3.medium runs Factorio or Valheim servers pretty well. You can always upgrade later without recreating everything.
+
+Palworld is a much heavier server and requires more RAM and system memory. I recommend a r6a.large with at least 80 GB of disk.
 
 ### What's in the 'python' folder?
 
